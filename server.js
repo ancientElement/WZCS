@@ -2,21 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-// 获取本机 IP 地址
-function getLocalIP() {
-  const interfaces = require('os').networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        return iface.address;
-      }
-    }
-  }
-  return 'localhost';
-}
-
 const PORT = 3000;
-const localIP = getLocalIP();
 
 // 存储消息和客户端
 let messages = [];
@@ -134,13 +120,53 @@ const server = http.createServer((req, res) => {
   res.end('Not Found');
 });
 
+// 获取本机 IP 地址
+// 获取本机所有 IP 地址
+function getLocalIPs() {
+    try {
+        const os = require('os');
+        const interfaces = os.networkInterfaces();
+        const ips = [];
+        
+        if (!interfaces || typeof interfaces !== 'object') {
+            return ['localhost'];
+        }
+        
+        for (const name of Object.keys(interfaces)) {
+            try {
+                const ifaceArray = interfaces[name];
+                if (!Array.isArray(ifaceArray)) continue;
+                
+                for (const iface of ifaceArray) {
+                    try {
+                        const family = iface.family;
+                        const isIPv4 = family === 'IPv4' || family === 4;
+                        if (isIPv4 && !iface.internal && iface.address) {
+                            ips.push(iface.address);
+                        }
+                    } catch (e) {
+                        continue;
+                    }
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+        
+        return ips.length > 0 ? ips : ['localhost'];
+    } catch (err) {
+        return ['localhost'];
+    }
+}
+const localIPs = getLocalIPs();
 server.listen(PORT, () => {
-  console.log('\n========================================');
-  console.log('  局域网文字传输工具已启动！');
-  console.log('========================================');
-  console.log(`\n请用浏览器访问以下地址之一：`);
-  console.log(`  • http://${localIP}:${PORT}  (推荐，用于局域网访问)`);
-  console.log(`  • http://localhost:${PORT}`);
-  console.log('\n在同一局域网的手机/电脑上打开上述地址即可互传文字');
-  console.log('========================================\n');
+    console.log('\n========================================');
+    console.log('  局域网文字传输工具已启动！');
+    console.log('========================================');
+    console.log(`\n请用浏览器访问以下地址之一：`);
+    localIPs.forEach(ip => {
+        console.log(`  • http://${ip}:${PORT}`);
+    });
+    console.log('\n在同一局域网的手机/电脑上打开上述地址即可互传文字');
+    console.log('========================================\n');
 });
