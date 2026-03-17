@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>局域网文字传输</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 20px;
+      font-size: 24px;
+    }
+    .status {
+      text-align: center;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .input-area {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      resize: vertical;
+      font-family: inherit;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #4CAF50;
+    }
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 12px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    .messages {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .messages h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    .message-item {
+      background: #f8f9fa;
+      border-left: 4px solid #4CAF50;
+      padding: 12px;
+      margin-bottom: 10px;
+      border-radius: 0 8px 8px 0;
+      word-break: break-all;
+    }
+    .message-time {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    .message-text {
+      font-size: 15px;
+      color: #333;
+      line-height: 1.5;
+    }
+    .empty {
+      text-align: center;
+      color: #999;
+      padding: 30px;
+    }
+    .clear-btn {
+      background: #ff6b6b;
+      margin-top: 10px;
+    }
+    .clear-btn:hover {
+      background: #ff5252;
+    }
+  </style>
+</head>
+<body>
+  <h1>📡 局域网文字传输</h1>
+  
+  <div id="status" class="status disconnected">正在连接...</div>
+  
+  <div class="input-area">
+    <textarea id="input" placeholder="在此输入要发送的文字..."></textarea>
+    <button onclick="sendText()">发送文字</button>
+  </div>
+  
+  <div class="messages">
+    <h2>📨 收到的消息</h2>
+    <div id="messageList">
+      <div class="empty">暂无消息</div>
+    </div>
+    <button class="clear-btn" onclick="clearMessages()">清空消息</button>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const inputEl = document.getElementById('input');
+    const messageListEl = document.getElementById('messageList');
+    
+    let clientId = null;
+    let eventSource = null;
+    
+    // 建立 SSE 连接
+    function connectSSE() {
+      eventSource = new EventSource('/events');
+      
+      eventSource.onopen = () => {
+        statusEl.textContent = '✓ 已连接 - 可以开始传输文字';
+        statusEl.className = 'status connected';
+      };
+      
+      eventSource.onerror = () => {
+        statusEl.textContent = '✗ 连接错误 - 请刷新页面重试';
+        statusEl.className = 'status disconnected';
+      };
+      
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'connected') {
+          clientId = data.clientId;
+          // 加载历史消息
+          loadHistory();
+        } else if (data.type === 'message') {
+          addMessage(data.data.text, data.data.time);
+        }
+      };
+    }
+    
+    // 加载历史消息
+    async function loadHistory() {
+      try {
+        const res = await fetch('/messages');
+        const messages = await res.json();
+        messages.forEach(msg => addMessage(msg.text, msg.time, true));
+      } catch (e) {
+        console.error('加载历史消息失败:', e);
+      }
+    }
+    
+    connectSSE();
+    
+    async function sendText() {
+      const text = inputEl.value.trim();
+      if (!text) {
+        alert('请输入要发送的文字');
+        return;
+      }
+      
+      if (!clientId) {
+        alert('连接未建立，请刷新页面重试');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text, clientId })
+        });
+        
+        if (res.ok) {
+          inputEl.value = '';
+          const originalText = statusEl.textContent;
+          statusEl.textContent = '✓ 发送成功';
+          setTimeout(() => {
+            statusEl.textContent = originalText;
+          }, 1000);
+        } else {
+          alert('发送失败');
+        }
+      } catch (e) {
+        alert('发送失败: ' + e.message);
+      }
+    }
+    
+    function addMessage(text, time, isHistory = false) {
+      const emptyEl = messageListEl.querySelector('.empty');
+      if (emptyEl) {
+        emptyEl.remove();
+      }
+      
+      const timeStr = time 
+        ? new Date(time).toLocaleTimeString('zh-CN')
+        : new Date().toLocaleTimeString('zh-CN');
+      
+      const item = document.createElement('div');
+      item.className = 'message-item';
+      item.innerHTML = `
+        <div class="message-time">${timeStr}</div>
+        <div class="message-text">${escapeHtml(text)}</div>
+      `;
+      
+      if (isHistory) {
+        messageListEl.appendChild(item);
+      } else {
+        messageListEl.insertBefore(item, messageListEl.firstChild);
+      }
+    }
+    
+    function clearMessages() {
+      messageListEl.innerHTML = '<div class="empty">暂无消息</div>';
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    // 支持 Ctrl+Enter 发送
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        sendText();
+      }
+    });
+  </script>
+</body>
+</html>
