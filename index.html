@@ -118,13 +118,79 @@
     .clear-btn:hover {
       background: #ff5252;
     }
+    .key-area {
+      background: white;
+      border-radius: 12px;
+      padding: 16px 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .key-area label {
+      font-size: 14px;
+      color: #555;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .key-area input {
+      flex: 1;
+      min-width: 150px;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: monospace;
+    }
+    .key-area input:focus {
+      outline: none;
+      border-color: #4CAF50;
+    }
+    .enc-badge {
+      font-size: 12px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+    .enc-badge.off {
+      background: #f5f5f5;
+      color: #999;
+    }
+    .message-item.encrypted {
+      border-left-color: #2196F3;
+    }
+    .message-item.self {
+      border-left-color: #4CAF50;
+      background: #f0faf0;
+    }
+    .self-tag {
+      font-size: 11px;
+      color: #388e3c;
+      margin-bottom: 3px;
+    }
+    .enc-tag {
+      font-size: 11px;
+      color: #1976D2;
+      margin-bottom: 3px;
+    }
   </style>
 </head>
 <body>
   <h1>📡 局域网文字传输</h1>
-  
+
   <div id="status" class="status disconnected">正在连接...</div>
-  
+
+  <div class="key-area">
+    <label>🔑 加密密钥：</label>
+    <input type="password" id="encKey" placeholder="双方填写相同密钥以开启加密（留空则明文传输）" oninput="updateEncStatus()">
+    <span id="encBadge" class="enc-badge off">未加密</span>
+  </div>
+
   <div class="input-area">
     <textarea id="input" placeholder="在此输入要发送的文字..."></textarea>
     <button onclick="sendText()">发送文字</button>
@@ -138,14 +204,134 @@
     <button class="clear-btn" onclick="clearMessages()">清空消息</button>
   </div>
 
+  <script src="/aes.js"></script>
   <script>
     const statusEl = document.getElementById('status');
     const inputEl = document.getElementById('input');
     const messageListEl = document.getElementById('messageList');
-    
+    const encKeyEl = document.getElementById('encKey');
+    const encBadgeEl = document.getElementById('encBadge');
+
     let clientId = null;
     let eventSource = null;
-    
+    let messageStore = []; // 缓存所有消息原始数据（含密文）
+
+    // ===== AES-256-CTR 加密工具 =====
+    // 将密钥字符串派生为 32 字节（256 bit）密钥数组
+    function deriveKey(keyStr) {
+      const bytes = [];
+      // 简单但有效的固定长度派生：对密钥字节做多轮混合
+      const raw = [];
+      for (let i = 0; i < keyStr.length; i++) {
+        raw.push(keyStr.charCodeAt(i) & 0xff);
+      }
+      for (let i = 0; i < 32; i++) {
+        let v = raw[i % raw.length];
+        v = (v ^ (i * 0x6b)) & 0xff;
+        v = (v + raw[(i * 7 + 3) % raw.length]) & 0xff;
+        v = (v ^ raw[(i * 13 + 11) % raw.length]) & 0xff;
+        bytes.push(v);
+      }
+      return bytes;
+    }
+
+    // 生成随机字节数组
+    function randomBytes(n) {
+      const arr = new Uint8Array(n);
+      crypto.getRandomValues(arr);
+      return Array.from(arr);
+    }
+
+    // bytes <-> hex
+    function toHex(bytes) {
+      return bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    function fromHex(hex) {
+      const arr = [];
+      for (let i = 0; i < hex.length; i += 2) {
+        arr.push(parseInt(hex.substr(i, 2), 16));
+      }
+      return arr;
+    }
+
+    // 字符串 -> UTF-8 bytes
+    function strToBytes(str) {
+      const enc = new TextEncoder();
+      return Array.from(enc.encode(str));
+    }
+    function bytesToStr(bytes) {
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    }
+
+    // 加密：返回 "🔒" + hex(iv[16] + ciphertext)
+    function encrypt(plaintext, keyStr) {
+      const key = deriveKey(keyStr);       // 32 字节
+      const iv  = randomBytes(16);         // 随机 IV（每次不同，保证安全）
+      const plainBytes = strToBytes(plaintext);
+      const aesCtr = new aesjs.ModeOfOperation.ctr(key, new aesjs.Counter(iv));
+      const cipherBytes = aesCtr.encrypt(plainBytes);
+      const combined = iv.concat(Array.from(cipherBytes));
+      return '🔒' + toHex(combined);
+    }
+
+    // 解密：成功返回明文，失败返回 null
+    function decrypt(cipherStr, keyStr) {
+      try {
+        if (!cipherStr.startsWith('🔒')) return null;
+        const bytes = fromHex(cipherStr.slice('🔒'.length));
+        const iv = bytes.slice(0, 16);
+        const cipherBytes = bytes.slice(16);
+        const key = deriveKey(keyStr);
+        const aesCtr = new aesjs.ModeOfOperation.ctr(key, new aesjs.Counter(iv));
+        const plainBytes = aesCtr.decrypt(cipherBytes);
+        return bytesToStr(Array.from(plainBytes));
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function isEncrypted(text) {
+      return typeof text === 'string' && text.startsWith('🔒');
+    }
+
+    function updateEncStatus() {
+      if (encKeyEl.value) {
+        encBadgeEl.textContent = '已加密 🔒';
+        encBadgeEl.className = 'enc-badge';
+      } else {
+        encBadgeEl.textContent = '未加密';
+        encBadgeEl.className = 'enc-badge off';
+      }
+      rerenderMessages();
+    }
+
+    // 用 messageStore 重新渲染所有消息
+    function rerenderMessages() {
+      messageListEl.innerHTML = '';
+      if (messageStore.length === 0) {
+        messageListEl.innerHTML = '<div class="empty">暂无消息</div>';
+        return;
+      }
+      messageStore.forEach(entry => {
+        const { text, encrypted } = processIncoming(entry.rawText);
+        _renderMessage(text, entry.time, true, encrypted, entry.isSelf);
+      });
+    }
+
+    // 处理收到的消息文本（解密或提示）
+    function processIncoming(rawText) {
+      const key = encKeyEl.value;
+      if (isEncrypted(rawText)) {
+        if (key) {
+          const plain = decrypt(rawText, key);
+          return { text: plain !== null ? plain : '⚠️ 解密失败，密钥不匹配', encrypted: true };
+        } else {
+          return { text: '🔒 加密消息，请输入密钥后查看', encrypted: true };
+        }
+      }
+      return { text: rawText, encrypted: false };
+    }
+
     // 建立 SSE 连接
     function connectSSE() {
       eventSource = new EventSource('/events');
@@ -162,13 +348,15 @@
       
       eventSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        
+
         if (data.type === 'connected') {
           clientId = data.clientId;
-          // 加载历史消息
           loadHistory();
         } else if (data.type === 'message') {
-          addMessage(data.data.text, data.data.time);
+          const rawText = data.data.text;
+          messageStore.push({ rawText, time: data.data.time, isHistory: false, isSelf: false });
+          const { text, encrypted } = processIncoming(rawText);
+          addMessage(text, data.data.time, false, encrypted);
         }
       };
     }
@@ -178,7 +366,11 @@
       try {
         const res = await fetch('/messages');
         const messages = await res.json();
-        messages.forEach(msg => addMessage(msg.text, msg.time, true));
+        messages.forEach(msg => {
+          messageStore.push({ rawText: msg.text, time: msg.time, isHistory: true, isSelf: false });
+          const { text, encrypted } = processIncoming(msg.text);
+          addMessage(text, msg.time, true, encrypted);
+        });
       } catch (e) {
         console.error('加载历史消息失败:', e);
       }
@@ -198,15 +390,20 @@
         return;
       }
       
+      const key = encKeyEl.value;
+      const payload = key ? encrypt(text, key) : text;
+
       try {
         const res = await fetch('/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text, clientId })
+          body: JSON.stringify({ text: payload, clientId })
         });
         
         if (res.ok) {
           inputEl.value = '';
+          messageStore.push({ rawText: text, time: new Date().toISOString(), isHistory: false, isSelf: true });
+          addMessage(text, new Date().toISOString(), false, !!key, true);
           const originalText = statusEl.textContent;
           statusEl.textContent = '✓ 发送成功';
           setTimeout(() => {
@@ -220,19 +417,25 @@
       }
     }
     
-    function addMessage(text, time, isHistory = false) {
+    function addMessage(text, time, isHistory = false, encrypted = false, isSelf = false) {
       const emptyEl = messageListEl.querySelector('.empty');
-      if (emptyEl) {
-        emptyEl.remove();
-      }
+      if (emptyEl) emptyEl.remove();
+      _renderMessage(text, time, isHistory, encrypted, isSelf);
+    }
+
+    function _renderMessage(text, time, isHistory, encrypted, isSelf) {
+      const emptyEl = messageListEl.querySelector('.empty');
+      if (emptyEl) emptyEl.remove();
       
       const timeStr = time 
         ? new Date(time).toLocaleTimeString('zh-CN')
         : new Date().toLocaleTimeString('zh-CN');
       
       const item = document.createElement('div');
-      item.className = 'message-item';
+      item.className = 'message-item' + (encrypted ? ' encrypted' : '') + (isSelf ? ' self' : '');
       item.innerHTML = `
+        ${isSelf ? '<div class="self-tag">➤ 我发送</div>' : ''}
+        ${encrypted ? '<div class="enc-tag">🔒 AES-256 加密消息</div>' : ''}
         <div class="message-time">${timeStr}</div>
         <div class="message-text">${escapeHtml(text)}</div>
       `;
@@ -245,6 +448,7 @@
     }
     
     function clearMessages() {
+      messageStore = [];
       messageListEl.innerHTML = '<div class="empty">暂无消息</div>';
     }
     

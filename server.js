@@ -29,6 +29,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // aes.js 静态文件
+  if (req.url === '/aes.js' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
+    res.end(fs.readFileSync(path.join(__dirname, 'aes.js')));
+    return;
+  }
+
   // SSE 长连接 - 接收消息
   if (req.url === '/events' && req.method === 'GET') {
     const clientId = ++clientIdCounter;
