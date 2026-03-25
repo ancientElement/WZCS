@@ -330,9 +330,11 @@
         messageListEl.innerHTML = '<div class="empty">暂无消息</div>';
         return;
       }
+      // 正序遍历，每条用 insertBefore 插到顶部，最后一条（最新）最终在最上面
       messageStore.forEach(entry => {
         const { text, encrypted } = processIncoming(entry.rawText);
-        _renderMessage(text, entry.time, true, encrypted, entry.isSelf);
+        const item = _buildMessageItem(text, entry.time, encrypted, entry.isSelf);
+        messageListEl.insertBefore(item, messageListEl.firstChild);
       });
     }
 
@@ -372,9 +374,9 @@
           loadHistory();
         } else if (data.type === 'message') {
           const rawText = data.data.text;
-          messageStore.push({ rawText, time: data.data.time, isHistory: false, isSelf: false });
+          messageStore.push({ rawText, time: data.data.time, isSelf: false });
           const { text, encrypted } = processIncoming(rawText);
-          addMessage(text, data.data.time, false, encrypted);
+          addMessage(text, data.data.time, encrypted, false);
         }
       };
     }
@@ -385,9 +387,9 @@
         const res = await fetch('/messages');
         const messages = await res.json();
         messages.forEach(msg => {
-          messageStore.push({ rawText: msg.text, time: msg.time, isHistory: true, isSelf: false });
+          messageStore.push({ rawText: msg.text, time: msg.time, isSelf: false });
           const { text, encrypted } = processIncoming(msg.text);
-          addMessage(text, msg.time, true, encrypted);
+          addMessage(text, msg.time, encrypted, false);
         });
       } catch (e) {
         console.error('加载历史消息失败:', e);
@@ -420,8 +422,8 @@
         
         if (res.ok) {
           inputEl.value = '';
-          messageStore.push({ rawText: text, time: new Date().toISOString(), isHistory: false, isSelf: true });
-          addMessage(text, new Date().toISOString(), false, !!key, true);
+          messageStore.push({ rawText: text, time: new Date().toISOString(), isSelf: true });
+          addMessage(text, new Date().toISOString(), !!key, true);
           const originalText = statusEl.textContent;
           statusEl.textContent = '✓ 发送成功';
           setTimeout(() => {
@@ -435,20 +437,16 @@
       }
     }
     
-    function addMessage(text, time, isHistory = false, encrypted = false, isSelf = false) {
+    function addMessage(text, time, encrypted = false, isSelf = false) {
       const emptyEl = messageListEl.querySelector('.empty');
       if (emptyEl) emptyEl.remove();
-      _renderMessage(text, time, isHistory, encrypted, isSelf);
+      _renderMessage(text, time, encrypted, isSelf);
     }
 
-    function _renderMessage(text, time, isHistory, encrypted, isSelf) {
-      const emptyEl = messageListEl.querySelector('.empty');
-      if (emptyEl) emptyEl.remove();
-      
+    function _buildMessageItem(text, time, encrypted, isSelf) {
       const timeStr = time 
         ? new Date(time).toLocaleTimeString('zh-CN')
         : new Date().toLocaleTimeString('zh-CN');
-      
       const item = document.createElement('div');
       item.className = 'message-item' + (encrypted ? ' encrypted' : '') + (isSelf ? ' self' : '');
       item.innerHTML = `
@@ -457,12 +455,14 @@
         <div class="message-time">${timeStr}</div>
         <div class="message-text">${escapeHtml(text)}</div>
       `;
-      
-      if (isHistory) {
-        messageListEl.appendChild(item);
-      } else {
-        messageListEl.insertBefore(item, messageListEl.firstChild);
-      }
+      return item;
+    }
+
+    function _renderMessage(text, time, encrypted, isSelf) {
+      const emptyEl = messageListEl.querySelector('.empty');
+      if (emptyEl) emptyEl.remove();
+      const item = _buildMessageItem(text, time, encrypted, isSelf);
+      messageListEl.insertBefore(item, messageListEl.firstChild);
     }
     
     function clearMessages() {
