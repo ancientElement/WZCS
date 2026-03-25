@@ -148,6 +148,19 @@
       outline: none;
       border-color: #4CAF50;
     }
+    .key-confirm-btn {
+      padding: 8px 16px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .key-confirm-btn:hover {
+      background: #45a049;
+    }
     .enc-badge {
       font-size: 12px;
       padding: 3px 10px;
@@ -181,13 +194,14 @@
   </style>
 </head>
 <body>
-  <h1>📡 局域网文字传输</h1>
+  <h1>📡</h1>
 
   <div id="status" class="status disconnected">正在连接...</div>
 
   <div class="key-area">
     <label>🔑 加密密钥：</label>
-    <input type="password" id="encKey" placeholder="双方填写相同密钥以开启加密（留空则明文传输）" oninput="updateEncStatus()">
+    <input type="password" id="encKey" placeholder="双方填写相同密钥，点确认生效" onkeydown="if(event.key==='Enter')confirmKey()">
+    <button class="key-confirm-btn" onclick="confirmKey()">确认</button>
     <span id="encBadge" class="enc-badge off">未加密</span>
   </div>
 
@@ -292,6 +306,10 @@
 
     function isEncrypted(text) {
       return typeof text === 'string' && text.startsWith('🔒');
+    }
+
+    function confirmKey() {
+      updateEncStatus();
     }
 
     function updateEncStatus() {
