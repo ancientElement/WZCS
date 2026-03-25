@@ -29,10 +29,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // aes.js 静态文件
-  if (req.url === '/aes.js' && req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-    res.end(fs.readFileSync(path.join(__dirname, 'aes.js')));
+  // 静态文件
+  const staticFiles = { '/aes.js': 'aes.js', '/app.js': 'app.js', '/style.css': 'style.css' };
+  if (req.method === 'GET' && staticFiles[req.url]) {
+    const ext = req.url.split('.').pop();
+    const mime = ext === 'css' ? 'text/css' : 'application/javascript';
+    res.writeHead(200, { 'Content-Type': mime + '; charset=utf-8' });
+    res.end(fs.readFileSync(path.join(__dirname, staticFiles[req.url])));
     return;
   }
 
