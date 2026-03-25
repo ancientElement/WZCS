@@ -20,7 +20,13 @@
 
   <div class="input-area">
     <textarea id="input" placeholder="在此输入要发送的文字..."></textarea>
-    <button onclick="sendText()">发送文字</button>
+    <div class="image-preview" id="imagePreview"></div>
+    <div class="input-buttons">
+      <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="onImageSelected(event)">
+      <button class="image-btn" onclick="document.getElementById('imageInput').click()">📷 选择图片</button>
+      <button onclick="sendImage()">发送图片</button>
+      <button onclick="sendText()">发送文字</button>
+    </div>
   </div>
 
   <div class="messages">
